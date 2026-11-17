@@ -1,0 +1,47 @@
+# Custom: publish the `custom` branch's web UI to GitHub Pages.
+# The controller's start page falls back to this copy if the Pi's local copy fails to load.
+# Site root = www/ plus a generated modules.json (the same list upstream's Grunt build makes).
+name: Custom - Deploy web UI to GitHub Pages
+
+on:
+  push:
+    branches: [custom]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build site
+        run: |
+          mkdir -p _site
+          cp -r www/. _site/
+          (cd www/js/modules && ls -1 *.js | LC_ALL=C sort) |
+            python3 -c "import sys, json; print(json.dumps([l.strip() for l in sys.stdin], indent=2))" > _site/modules.json
+          touch _site/.nojekyll
+          test -f _site/js/home.js
+          test -f _site/js/modules/snooze.js
+          grep -q '"snooze.js"' _site/modules.json
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

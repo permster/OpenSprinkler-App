@@ -1,0 +1,48 @@
+# Custom: one-click merge of upstream master into `custom` (Actions > Run workflow).
+# Stops without pushing if the merge has conflicts. After a successful push it starts the
+# GitHub Pages deploy (pushes made by a workflow don't trigger other workflows by themselves).
+# If upstream changed files under .github/workflows, GitHub refuses the push from the built-in
+# token; then either merge locally or add a repository secret SYNC_TOKEN (a fine-grained token
+# for this repo with Contents + Workflows read/write).
+name: Custom - Sync from upstream
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  UPSTREAM: https://github.com/OpenSprinkler/OpenSprinkler-App.git
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: custom
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+
+      - name: Merge upstream master into custom
+        run: |
+          git remote add upstream "$UPSTREAM"
+          git fetch --quiet upstream master
+          behind=$(git rev-list --count HEAD..upstream/master)
+          if [ "$behind" = "0" ]; then echo "Already up to date."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git merge --no-ff -m "Merge upstream $(git rev-parse --short upstream/master) into custom" upstream/master; then
+            echo "::error::Merge has conflicts - nothing was pushed. Resolve locally:"
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+          test -f www/js/modules/snooze.js
+          git push origin custom
+
+      - name: Redeploy GitHub Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run custom-pages.yml --ref custom
