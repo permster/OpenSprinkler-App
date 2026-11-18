@@ -25,11 +25,38 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Same version tool as upstream's release workflows. The fork has no tags, so
+      # fetch upstream's (tags only) for GitVersion to count from.
+      - name: Fetch upstream tags
+        run: git fetch --quiet --tags https://github.com/OpenSprinkler/OpenSprinkler-App.git
+
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v3.0.0
+        with:
+          versionSpec: "5.x"
+
+      - name: Run GitVersion
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v3.0.0
+        with:
+          useConfigFile: false
 
       - name: Build site
+        env:
+          BASE_VERSION: ${{ steps.gitversion.outputs.majorMinorPatch }}
         run: |
           mkdir -p _site
           cp -r www/. _site/
+          # e.g. 2.4.112-custom.2b7cfeb (upstream-style number + this fork's commit)
+          ver="${BASE_VERSION:-0.0.0}-custom.$(git rev-parse --short=7 HEAD)"
+          echo "App version: $ver"
+          sed -i "s|appVersion: '[0-9.]*'|appVersion: '$ver'|" _site/js/main.js
+          sed -i "s|OpenSprinkler-v[0-9.]*\"|OpenSprinkler-v$ver\"|" _site/sw.js
+          grep -q "appVersion: '$ver'" _site/js/main.js
+          grep -q "OpenSprinkler-v$ver\"" _site/sw.js
           (cd www/js/modules && ls -1 *.js | LC_ALL=C sort) |
             python3 -c "import sys, json; print(json.dumps([l.strip() for l in sys.stdin], indent=2))" > _site/modules.json
           touch _site/.nojekyll
